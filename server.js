@@ -3,6 +3,11 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { simplifiyWithPhi } from './services/phi-service.js';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,6 +28,14 @@ const limiter = rateLimit({
 });
 
 app.use(limiter);
+
+// Serve static frontend files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(join(__dirname, 'dist')));
+  app.get('/', (req, res) => {
+    res.sendFile(join(__dirname, 'dist', 'index.html'));
+  });
+}
 
 const requestSchema = z.object({
   text: z.string().min(10, 'Text too short (min 10 chars)').max(5000, 'Text too long (max 5000 chars)'),

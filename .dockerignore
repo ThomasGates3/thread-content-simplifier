@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.env.local
+.env.dev
+npm-debug.log
+.DS_Store
+.vscode
+.idea
+CLAUDE.local.md
