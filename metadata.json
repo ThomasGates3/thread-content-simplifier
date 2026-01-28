@@ -1,0 +1,5 @@
+{
+  "name": "Threads Content Simplifier",
+  "description": "An AI-powered tool designed to transform complex technical drafts into high-engagement, Grade 6-7 readability Threads content based on the Hemingway Rules.",
+  "requestFramePermissions": []
+}
