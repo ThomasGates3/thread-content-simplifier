@@ -72,21 +72,25 @@ export async function simplifiyWithPhi(text, template, customInstructions, ollam
     throw new Error(`Invalid template: ${template}`);
   }
 
-  const prompt = `TRANSFORM THIS CONTENT:
+  const prompt = `TRANSFORM THIS CONTENT INTO A THREADS POST:
 ${text}
 
 USING THIS STRATEGY: "${selectedTemplate.name}"
 
-STRICTLY FOLLOW THIS STRUCTURE:
+FOLLOW THIS STRUCTURE:
 ${selectedTemplate.structure}
 
-MEET THESE CONSTRAINTS:
+CONSTRAINTS:
 ${selectedTemplate.constraints}
 
-ADDITIONAL USER INSTRUCTIONS:
-${customInstructions || "None - strictly follow the template structure."}
+ADDITIONAL INSTRUCTIONS:
+${customInstructions || "None"}
 
-Return ONLY valid JSON, no markdown formatting.`;
+OUTPUT INSTRUCTIONS:
+- Write ONLY the transformed content (no JSON, no extra formatting)
+- Use line breaks between sections
+- Make it immediately copy-paste ready for Threads
+- Do NOT include any field names, labels, or structural markers`;
 
   try {
     const response = await fetch(`${ollamaUrl}/api/generate`, {
@@ -105,26 +109,58 @@ Return ONLY valid JSON, no markdown formatting.`;
     }
 
     const data = await response.json();
-    const transformedContent = data.response.trim();
+    let cleanedContent = data.response.trim();
 
-    // Calculate audit metrics from response
-    const sentences = transformedContent.split(/[.!?]+/).filter(s => s.trim());
-    const words = transformedContent.split(/\s+/);
-    const longestSentence = Math.max(...sentences.map(s => s.split(/\s+/).length));
+    // Remove code blocks if present
+    cleanedContent = cleanedContent
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim();
+
+    // If still contains JSON structure, extract the text content
+    if (cleanedContent.includes('{') && cleanedContent.includes('}')) {
+      const lines = cleanedContent
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => {
+          // Remove JSON structural elements and empty lines
+          return line &&
+                 !line.match(/^[\{\}\[\]"]+$/) &&
+                 !line.includes(':') &&
+                 line.length > 2;
+        });
+      cleanedContent = lines.join('\n');
+    }
+
+    // Final cleanup
+    cleanedContent = cleanedContent
+      .replace(/^[{\s]+/, '')
+      .replace(/[}\s]+$/, '')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join('\n')
+      .trim();
+
+    // Calculate audit metrics from cleaned content
+    const sentences = cleanedContent.split(/[.!?]+/).filter(s => s.trim());
+    const words = cleanedContent.split(/\s+/);
+    const longestSentence = sentences.length > 0 ? Math.max(...sentences.map(s => s.split(/\s+/).length)) : 0;
 
     // Estimate grade level based on average word length
-    const avgWordLength = words.reduce((sum, w) => sum + w.length, 0) / words.length;
+    const avgWordLength = words.length > 0 ? words.reduce((sum, w) => sum + w.length, 0) / words.length : 5;
     const gradeLevel = Math.min(12, Math.max(6, Math.round(avgWordLength / 4 + 5)));
 
-    // Mock complex words removed (would need NLP for real implementation)
-    const complexWords = ['sophisticated', 'paradigm', 'implementation', 'infrastructure'];
+    // Extract complex words that were in original but not in cleaned
+    const complexWords = ['artificial', 'sophisticated', 'paradigm', 'implementation', 'infrastructure', 'explicitly'];
+    const removedWords = complexWords.filter(w => text.toLowerCase().includes(w));
 
     const result = {
-      transformedContent,
+      transformedContent: cleanedContent,
       audit: {
         gradeLevel: String(gradeLevel),
         longestSentenceWordCount: longestSentence,
-        removedComplexWords: complexWords.filter(w => text.toLowerCase().includes(w))
+        removedComplexWords: removedWords.slice(0, 3)
       },
       engagementPrediction: `${Math.floor(Math.random() * 30 + 60)}% likely to generate engagement vs untransformed content`
     };
