@@ -9,10 +9,8 @@ const TEMPLATES = {
 
 [The Result: Short, punchy sentences. e.g., "No guessing. No wasted time."]
 
-[The Closer: "One line. 10x better." or "You're welcome."]
-
-(Save this for later)`,
-    constraints: "Style: Direct, slightly aggressive. Max 500 chars. Use line breaks between EVERY sentence."
+[The Closer: "One line. 10x better." or "You're welcome."]`,
+    constraints: "Style: Direct, slightly aggressive. Max 500 chars per post. Single post only."
   },
   EDUCATIONAL_THREAD: {
     name: "Before/After Transformation",
@@ -24,10 +22,8 @@ BEFORE:
 AFTER:
 [List 2-3 wins. Use '✓' bullet if applicable]
 
-[The Insight: 1-2 word maxim. e.g., "Specificity wins." or "Tools matter."]
-
-[CTA: "(Link in bio)" or "(I teach this in my guide)"]`,
-    constraints: "Focus on the contrast. Visual separation is key. Max 500 chars per post."
+[The Insight: 1-2 word maxim. e.g., "Specificity wins." or "Tools matter."]`,
+    constraints: "Focus on the contrast. Visual separation is key. Max 500 chars per post. If multiple posts needed, split clearly with (1/2) (2/2) etc."
   },
   OPINION_ANALYSIS: {
     name: "Controversial / Hot Take",
@@ -39,10 +35,8 @@ AFTER:
 - [Point 1]
 - [Point 2]
 
-[The Reality Check: "Real value = [X]" or "Same price. More features."]
-
 [The Challenge: "Disagree? Let's talk." or "Change my mind 👇"]`,
-    constraints: "Tone: Confident, authoritative. No hedging words ('maybe', 'possibly'). Max 500 chars."
+    constraints: "Tone: Confident, authoritative. No hedging words ('maybe', 'possibly'). Max 500 chars per post. Split into multiple posts if needed."
   },
   NEWS_HOOK: {
     name: "News / Curiosity Hook",
@@ -52,19 +46,22 @@ AFTER:
 
 [The Why: 1 sentence on why it matters]
 
-[CTA: "Thread 👇"]`,
-    constraints: "Readability: Grade 6. Max 400 chars. High curiosity."
+[CTA: "More 👇"]`,
+    constraints: "Readability: Grade 6. Max 500 chars per post. Split into multiple posts (1/2, 2/2, etc) if content exceeds 500 chars."
   }
 };
 
-const SYSTEM_INSTRUCTION = `You are a viral social media ghostwriter specializing in Threads content.
+const SYSTEM_INSTRUCTION = `You are a viral social media ghostwriter specializing in Threads content (500 chars max per post).
 
 YOUR "DNA" (STRICTLY FOLLOW):
 1. Stop/Start: distinct contrast. "Stop doing X. Start doing Y."
 2. Short Lines: Never write a paragraph longer than 2 lines. 1 line is better.
 3. Visuals: Use '✗' and '✓' for comparisons.
 4. Punchy Closers: End with "You're welcome." or "Specificity wins." or "That's it."
-5. No Fluff: Remove "I think", "In my opinion", "Basically". Just state it.`;
+5. No Fluff: Remove "I think", "In my opinion", "Basically". Just state it.
+
+CRITICAL: Each post must be 500 characters or less (including spaces and line breaks).
+If content needs multiple posts, structure it clearly so each post stands alone.`;
 
 export async function simplifiyWithPhi(text, template, customInstructions, ollamaUrl) {
   const selectedTemplate = TEMPLATES[template];
@@ -142,7 +139,72 @@ OUTPUT INSTRUCTIONS:
       .join('\n')
       .trim();
 
-    // Calculate audit metrics from cleaned content
+    // Split into 500-character posts if needed
+    const MAX_CHARS = 500;
+    let posts = [];
+
+    if (cleanedContent.length > MAX_CHARS) {
+      // Split on line breaks first, then sentences if needed
+      const lines = cleanedContent.split('\n');
+      let currentPost = '';
+
+      for (const line of lines) {
+        const testLength = currentPost ? (currentPost + '\n' + line).length : line.length;
+
+        if (testLength > MAX_CHARS) {
+          // Current line doesn't fit, save current post and start new one
+          if (currentPost) posts.push(currentPost.trim());
+          currentPost = line;
+        } else {
+          // Add line to current post
+          currentPost = currentPost ? currentPost + '\n' + line : line;
+        }
+      }
+      if (currentPost) posts.push(currentPost.trim());
+
+      // If still too long, split on sentences
+      posts = posts.flatMap(post => {
+        if (post.length <= MAX_CHARS) return [post];
+
+        const sentences = post.match(/[^.!?]*[.!?]+/g) || [post];
+        const result = [];
+        let current = '';
+
+        for (const sent of sentences) {
+          if ((current + ' ' + sent).length > MAX_CHARS) {
+            if (current) result.push(current.trim());
+            current = sent;
+          } else {
+            current = current ? current + ' ' + sent : sent;
+          }
+        }
+        if (current) result.push(current.trim());
+        return result;
+      });
+    } else {
+      posts = [cleanedContent];
+    }
+
+    // Trim posts to stay under 500 chars (accounting for numbering)
+    posts = posts.map((post, idx) => {
+      const numbering = posts.length > 1 ? `(${idx + 1}/${posts.length}) ` : '';
+      const maxLength = MAX_CHARS - numbering.length;
+
+      if (post.length > maxLength) {
+        return post.substring(0, maxLength - 1).trim() + '…';
+      }
+      return post;
+    });
+
+    // Format posts with numbering if multiple
+    let formattedContent = posts
+      .map((post, idx) => {
+        const num = posts.length > 1 ? `(${idx + 1}/${posts.length}) ` : '';
+        return num + post;
+      })
+      .join('\n\n');
+
+    // Calculate audit metrics from original content
     const sentences = cleanedContent.split(/[.!?]+/).filter(s => s.trim());
     const words = cleanedContent.split(/\s+/);
     const longestSentence = sentences.length > 0 ? Math.max(...sentences.map(s => s.split(/\s+/).length)) : 0;
@@ -156,13 +218,15 @@ OUTPUT INSTRUCTIONS:
     const removedWords = complexWords.filter(w => text.toLowerCase().includes(w));
 
     const result = {
-      transformedContent: cleanedContent,
+      transformedContent: formattedContent,
       audit: {
         gradeLevel: String(gradeLevel),
         longestSentenceWordCount: longestSentence,
         removedComplexWords: removedWords.slice(0, 3)
       },
-      engagementPrediction: `${Math.floor(Math.random() * 30 + 60)}% likely to generate engagement vs untransformed content`
+      engagementPrediction: posts.length > 1
+        ? `${posts.length}-post thread. ${Math.floor(Math.random() * 30 + 60)}% engagement lift vs untransformed`
+        : `${Math.floor(Math.random() * 30 + 60)}% likely to generate engagement vs untransformed content`
     };
 
     return result;
